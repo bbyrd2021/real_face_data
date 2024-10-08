@@ -3,12 +3,13 @@
 random_photo_selector.py
 
 This script randomly selects a specified number of photos from each subfolder within a root directory.
-It can display the selected images and optionally save their paths to a CSV file.
+It can display the selected images, copy them to an output directory, and optionally save their paths to a CSV file.
 
 Usage:
-    python random_photo_selector.py --root_folder "/path/to/Real" --num_images 1 --display --save_csv "selected_images.csv"
+    python random_photo_selector.py --root_folder "/path/to/Real" --num_images 1 --display --save_csv "selected_images.csv" --output_dir "/path/to/output"
 
-Author: Brandon L. Byrd
+Author: Your Name
+Date: YYYY-MM-DD
 """
 
 import os
@@ -17,6 +18,7 @@ import argparse
 import sys
 import csv
 from pathlib import Path
+import shutil
 
 # Try to import Pillow for image display
 try:
@@ -125,6 +127,35 @@ def save_selected_images_to_csv(selected_images_dict, csv_path):
     except Exception as e:
         print(f"[ERROR] Failed to save CSV file '{csv_path}'. Error: {e}")
 
+def copy_selected_images(selected_images_dict, output_dir, maintain_structure=True):
+    """
+    Copy the selected images to the specified output directory.
+
+    Parameters:
+        selected_images_dict (dict): Dictionary with subfolder names as keys and lists of image paths as values.
+        output_dir (str): Path to the output directory where images will be copied.
+        maintain_structure (bool): If True, maintain the original subfolder structure in the output directory.
+    """
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        for subfolder, images in selected_images_dict.items():
+            if maintain_structure:
+                dest_subdir = os.path.join(output_dir, subfolder)
+                os.makedirs(dest_subdir, exist_ok=True)
+            for img_path in images:
+                if maintain_structure:
+                    dest_path = os.path.join(output_dir, subfolder, os.path.basename(img_path))
+                else:
+                    dest_path = os.path.join(output_dir, os.path.basename(img_path))
+                try:
+                    shutil.copy2(img_path, dest_path)
+                    print(f"[INFO] Copied '{img_path}' to '{dest_path}'.")
+                except Exception as e:
+                    print(f"[ERROR] Failed to copy '{img_path}' to '{dest_path}'. Error: {e}")
+        print(f"[INFO] All selected images have been copied to '{output_dir}'.")
+    except Exception as e:
+        print(f"[ERROR] Failed to copy images to '{output_dir}'. Error: {e}")
+
 def parse_arguments():
     """
     Parse command-line arguments.
@@ -141,6 +172,10 @@ def parse_arguments():
                         help="Display the selected images using the default image viewer.")
     parser.add_argument('--save_csv', type=str, default=None,
                         help="Path to save the selected image paths as a CSV file.")
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help="Path to the directory where selected images will be copied.")
+    parser.add_argument('--maintain_structure', action='store_true',
+                        help="Maintain the original subfolder structure in the output directory. Default is False.")
     return parser.parse_args()
 
 def main():
@@ -151,6 +186,8 @@ def main():
     num_images = args.num_images
     display_selected = args.display
     csv_path = args.save_csv
+    output_dir = args.output_dir
+    maintain_structure = args.maintain_structure
 
     # Validate root folder
     if not os.path.isdir(root_folder):
@@ -182,6 +219,10 @@ def main():
     # Save selected images to CSV
     if csv_path:
         save_selected_images_to_csv(selected_images, csv_path)
+
+    # Copy selected images to output directory
+    if output_dir:
+        copy_selected_images(selected_images, output_dir, maintain_structure)
 
     print("\n[INFO] Random photo selection completed.")
 
