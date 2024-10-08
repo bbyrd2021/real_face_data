@@ -6,7 +6,7 @@ This script randomly selects a specified number of photos from each subfolder wi
 It can display the selected images, copy them to an output directory, and optionally save their paths to a CSV file.
 
 Usage:
-    python random_photo_selector.py --root_folder "/path/to/Real" --num_images 1 --display --save_csv "selected_images.csv" --output_dir "/path/to/output"
+    python random_photo_selector.py --root_folder "/path/to/Real" --num_images 1 --display --save_csv "selected_images.csv" --output_dir "/path/to/bte" --maintain_structure
 
 Author: Your Name
 Date: YYYY-MM-DD
@@ -19,6 +19,7 @@ import sys
 import csv
 from pathlib import Path
 import shutil
+import logging
 
 # Try to import Pillow for image display
 try:
@@ -26,6 +27,27 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+
+# Try to import tqdm for progress bars
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+
+def setup_logging():
+    """
+    Configure the logging settings.
+    Logs are saved to 'random_photo_selector.log' and also output to the console.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=[
+            logging.FileHandler("random_photo_selector.log"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
 
 def get_subdirectories(root_folder):
     """
@@ -60,6 +82,28 @@ def get_image_files(folder_path):
     ]
     return image_files
 
+def select_images_from_single_subfolder(subdir, num_images):
+    """
+    Select a specified number of random images from a single subfolder.
+
+    Parameters:
+        subdir (str): Path to the subfolder.
+        num_images (int): Number of images to select.
+
+    Returns:
+        tuple: (subfolder name, list of selected image paths)
+    """
+    images = get_image_files(subdir)
+    if not images:
+        logging.warning(f"No images found in subfolder: {subdir}")
+        return (os.path.basename(subdir), [])
+    if num_images > len(images):
+        logging.info(f"Requested {num_images} images, but only {len(images)} available in '{subdir}'. Selecting all available images.")
+        selected = images
+    else:
+        selected = random.sample(images, num_images)
+    return (os.path.basename(subdir), selected)
+
 def select_random_images_from_subfolders(root_folder, num_images=1):
     """
     Select a specified number of random images from each subfolder within the root folder.
@@ -75,20 +119,18 @@ def select_random_images_from_subfolders(root_folder, num_images=1):
     subdirs = get_subdirectories(root_folder)
 
     if not subdirs:
-        print(f"No subdirectories found in the root folder: {root_folder}")
+        logging.warning(f"No subdirectories found in the root folder: {root_folder}")
         return selected_images
 
-    for subdir in subdirs:
-        images = get_image_files(subdir)
-        if not images:
-            print(f"[WARNING] No images found in subfolder: {subdir}")
-            continue
-        if num_images > len(images):
-            print(f"[INFO] Requested {num_images} images, but only {len(images)} available in '{subdir}'. Selecting all available images.")
-            selected = images
-        else:
-            selected = random.sample(images, num_images)
-        selected_images[os.path.basename(subdir)] = selected
+    if TQDM_AVAILABLE:
+        iterator = tqdm(subdirs, desc="Selecting Images")
+    else:
+        iterator = subdirs
+
+    for subdir in iterator:
+        subfolder, selected = select_images_from_single_subfolder(subdir, num_images)
+        if selected:
+            selected_images[subfolder] = selected
 
     return selected_images
 
@@ -100,13 +142,13 @@ def display_image(image_path):
         image_path (str): Path to the image file.
     """
     if not PIL_AVAILABLE:
-        print("[ERROR] Pillow library is not installed. Install it using 'pip install Pillow' to enable image display.")
+        logging.error("Pillow library is not installed. Install it using 'pip install Pillow' to enable image display.")
         return
     try:
         img = Image.open(image_path)
         img.show()
     except Exception as e:
-        print(f"[ERROR] Unable to display image '{image_path}'. Error: {e}")
+        logging.error(f"Unable to display image '{image_path}'. Error: {e}")
 
 def save_selected_images_to_csv(selected_images_dict, csv_path):
     """
@@ -123,9 +165,9 @@ def save_selected_images_to_csv(selected_images_dict, csv_path):
             for subfolder, images in selected_images_dict.items():
                 for img_path in images:
                     writer.writerow([subfolder, img_path])
-        print(f"[INFO] Selected image paths have been saved to '{csv_path}'.")
+        logging.info(f"Selected image paths have been saved to '{csv_path}'.")
     except Exception as e:
-        print(f"[ERROR] Failed to save CSV file '{csv_path}'. Error: {e}")
+        logging.error(f"Failed to save CSV file '{csv_path}'. Error: {e}")
 
 def copy_selected_images(selected_images_dict, output_dir, maintain_structure=True):
     """
@@ -138,7 +180,11 @@ def copy_selected_images(selected_images_dict, output_dir, maintain_structure=Tr
     """
     try:
         os.makedirs(output_dir, exist_ok=True)
-        for subfolder, images in selected_images_dict.items():
+        if TQDM_AVAILABLE:
+            iterator = tqdm(selected_images_dict.items(), desc="Copying Images")
+        else:
+            iterator = selected_images_dict.items()
+        for subfolder, images in iterator:
             if maintain_structure:
                 dest_subdir = os.path.join(output_dir, subfolder)
                 os.makedirs(dest_subdir, exist_ok=True)
@@ -147,14 +193,17 @@ def copy_selected_images(selected_images_dict, output_dir, maintain_structure=Tr
                     dest_path = os.path.join(output_dir, subfolder, os.path.basename(img_path))
                 else:
                     dest_path = os.path.join(output_dir, os.path.basename(img_path))
+                if os.path.exists(dest_path):
+                    logging.warning(f"File '{dest_path}' already exists. Skipping copy.")
+                    continue
                 try:
                     shutil.copy2(img_path, dest_path)
-                    print(f"[INFO] Copied '{img_path}' to '{dest_path}'.")
+                    logging.info(f"Copied '{img_path}' to '{dest_path}'.")
                 except Exception as e:
-                    print(f"[ERROR] Failed to copy '{img_path}' to '{dest_path}'. Error: {e}")
-        print(f"[INFO] All selected images have been copied to '{output_dir}'.")
+                    logging.error(f"Failed to copy '{img_path}' to '{dest_path}'. Error: {e}")
+        logging.info(f"All selected images have been copied to '{output_dir}'.")
     except Exception as e:
-        print(f"[ERROR] Failed to copy images to '{output_dir}'. Error: {e}")
+        logging.error(f"Failed to copy images to '{output_dir}'. Error: {e}")
 
 def parse_arguments():
     """
@@ -179,6 +228,9 @@ def parse_arguments():
     return parser.parse_args()
 
 def main():
+    # Set up logging
+    setup_logging()
+
     # Parse command-line arguments
     args = parse_arguments()
 
@@ -191,29 +243,29 @@ def main():
 
     # Validate root folder
     if not os.path.isdir(root_folder):
-        print(f"[ERROR] The specified root folder does not exist or is not a directory: {root_folder}")
+        logging.error(f"The specified root folder does not exist or is not a directory: {root_folder}")
         sys.exit(1)
 
     # Validate num_images
     if num_images < 1:
-        print("[ERROR] The number of images per folder must be at least 1.")
+        logging.error("The number of images per folder must be at least 1.")
         sys.exit(1)
 
     # Select random images
-    print(f"[INFO] Selecting {num_images} image(s) from each subfolder in '{root_folder}'...")
+    logging.info(f"Selecting {num_images} image(s) from each subfolder in '{root_folder}'...")
     selected_images = select_random_images_from_subfolders(root_folder, num_images)
 
     if not selected_images:
-        print("[INFO] No images were selected. Exiting.")
+        logging.info("No images were selected. Exiting.")
         sys.exit(0)
 
     # Display selected images
     if display_selected:
-        print("[INFO] Displaying selected images...")
+        logging.info("Displaying selected images...")
         for subfolder, images in selected_images.items():
-            print(f"\nSubfolder: {subfolder}")
+            logging.info(f"\nSubfolder: {subfolder}")
             for img_path in images:
-                print(f" - {img_path}")
+                logging.info(f" - {img_path}")
                 display_image(img_path)
 
     # Save selected images to CSV
@@ -224,7 +276,8 @@ def main():
     if output_dir:
         copy_selected_images(selected_images, output_dir, maintain_structure)
 
-    print("\n[INFO] Random photo selection completed.")
+    logging.info("\nRandom photo selection completed.")
 
 if __name__ == "__main__":
     main()
+
