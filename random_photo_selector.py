@@ -19,6 +19,7 @@ import csv
 from pathlib import Path
 import shutil
 import logging
+import uuid
 
 # Try to import Pillow for image display
 try:
@@ -170,12 +171,13 @@ def save_selected_images_to_csv(selected_images_dict, csv_path):
 
 def copy_selected_images(selected_images_dict, output_dir, maintain_structure=True):
     """
-    Copy the selected images to the specified output directory.
+    Copy the selected images to the specified output directory, with options for maintaining folder structure or appending UUIDs to handle conflicts.
 
     Parameters:
         selected_images_dict (dict): Dictionary with subfolder names as keys and lists of image paths as values.
         output_dir (str): Path to the output directory where images will be copied.
         maintain_structure (bool): If True, maintain the original subfolder structure in the output directory.
+                                    If False, copy all files into a single directory, ensuring unique file names.
     """
     try:
         os.makedirs(output_dir, exist_ok=True)
@@ -183,23 +185,33 @@ def copy_selected_images(selected_images_dict, output_dir, maintain_structure=Tr
             iterator = tqdm(selected_images_dict.items(), desc="Copying Images")
         else:
             iterator = selected_images_dict.items()
+
         for subfolder, images in iterator:
-            if maintain_structure:
-                dest_subdir = os.path.join(output_dir, subfolder)
-                os.makedirs(dest_subdir, exist_ok=True)
             for img_path in images:
                 if maintain_structure:
-                    dest_path = os.path.join(output_dir, subfolder, os.path.basename(img_path))
+                    # If maintaining structure, replicate subdirectory paths
+                    dest_subdir = os.path.join(output_dir, subfolder)
+                    os.makedirs(dest_subdir, exist_ok=True)
+                    dest_path = os.path.join(dest_subdir, os.path.basename(img_path))
                 else:
+                    # If not maintaining structure, copy all images to the output_dir
                     dest_path = os.path.join(output_dir, os.path.basename(img_path))
-                if os.path.exists(dest_path):
-                    logging.warning(f"File '{dest_path}' already exists. Skipping copy.")
-                    continue
+
+                    # Check if the file already exists and append a UUID if needed
+                    if os.path.exists(dest_path):
+                        unique_id = str(uuid.uuid4())
+                        file_name, file_extension = os.path.splitext(os.path.basename(img_path))
+                        new_name = f"{file_name}_{unique_id}{file_extension}"
+                        dest_path = os.path.join(output_dir, new_name)
+                        logging.info(f"File name conflict. Renaming '{file_name}{file_extension}' to '{new_name}'")
+
+                # Copy the file to the designated path (either structured or flat)
                 try:
                     shutil.copy2(img_path, dest_path)
                     logging.info(f"Copied '{img_path}' to '{dest_path}'.")
                 except Exception as e:
                     logging.error(f"Failed to copy '{img_path}' to '{dest_path}'. Error: {e}")
+
         logging.info(f"All selected images have been copied to '{output_dir}'.")
     except Exception as e:
         logging.error(f"Failed to copy images to '{output_dir}'. Error: {e}")
