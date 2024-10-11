@@ -8,7 +8,7 @@ It can display the selected images, copy them to an output directory, and option
 Usage:
     python random_photo_selector.py --root_folder "/path/to/Real" --num_images 1 --display --save_csv "selected_images.csv" --output_dir "/path/to/bte" --maintain_structure
 
-Author: Your Name
+Author: Brandon L. Byrd
 Date: YYYY-MM-DD
 """
 
